@@ -1,76 +1,76 @@
 import pandas as pd
 import numpy as np
+from statsmodels.tsa.api import ExponentialSmoothing
 from statsmodels.tsa.statespace.varmax import VARMAX
 import pickle
-import matplotlib.pyplot as plt
 
 # Load training data
 train_url = "https://github.com/dustywhite7/econ8310-assignment1/raw/main/assignment_data_train.csv"
 train_data = pd.read_csv(train_url)
 
-# Preprocess data
-def preprocess_data(df):
-    # Handle timestamp column
-    if 'Timestamp' in df.columns:
-        df = df.rename(columns={'Timestamp': 'timestamp'})
-    df['timestamp'] = pd.to_datetime(df['timestamp'])
-    df = df.set_index('timestamp').asfreq('h')
-    return df
+# Ensure correct timestamp column name
+if 'Timestamp' in train_data.columns:
+    train_data.rename(columns={'Timestamp': 'timestamp'}, inplace=True)
 
-train_data = preprocess_data(train_data)
+# Convert timestamp column to datetime format and set as index
+train_data['timestamp'] = pd.to_datetime(train_data['timestamp'])
+train_data.set_index('timestamp', inplace=True)
 
-# Select features (add more relevant features from your dataset)
-target = 'trips'
-exog_features = ['temp', 'precip']  # Example exogenous variables
+# Ensure dataset follows an hourly frequency
+train_data = train_data.asfreq('h')
 
-# Create training datasets
-y_train = train_data[[target]]
-X_train = train_data[exog_features]
+# Select the dependent variable (number of taxi trips)
+y_train = train_data['trips']
 
-# === VARMAX Model === #
-# Initialize and fit model (adjust order as needed)
-model = VARMAX(y_train, exog=X_train, order=(1, 1))
-model_fit = model.fit(disp=False)
+# === OPTION 1: Exponential Smoothing Model === #
+model = ExponentialSmoothing(y_train, seasonal='add', seasonal_periods=24)
+modelFit = model.fit()
 
-# Save model
-with open("varmax_model.pkl", "wb") as f:
-    pickle.dump(model_fit, f)
+# Save the trained model
+with open("model.pkl", "wb") as f:
+    pickle.dump(modelFit, f)
 
-# Load and preprocess test data
+# Load test data
 test_url = "https://github.com/dustywhite7/econ8310-assignment1/raw/main/assignment_data_test.csv"
-test_data = preprocess_data(pd.read_csv(test_url))
-X_test = test_data[exog_features]
+test_data = pd.read_csv(test_url)
 
-# Generate forecasts
-forecast = model_fit.get_forecast(steps=len(test_data), exog=X_test)
-pred = forecast.predicted_mean
+# Ensure correct timestamp column name in test data
+if 'Timestamp' in test_data.columns:
+    test_data.rename(columns={'Timestamp': 'timestamp'}, inplace=True)
+
+# Convert test timestamp column to datetime format and set as index
+test_data['timestamp'] = pd.to_datetime(test_data['timestamp'])
+test_data.set_index('timestamp', inplace=True)
+test_data = test_data.asfreq('h')
+
+# Forecast for 744 hours (January of next year)
+pred = modelFit.forecast(steps=744)
 
 # Save predictions
-pred.to_csv("varmax_predictions.csv")
+pred.to_csv("predictions.csv")
 
-# Plotting function
-def plot_results(train, pred, title):
-    plt.figure(figsize=(12, 5))
-    plt.plot(train[-500:], label="Training Data", color='black')
-    plt.plot(pred, label="Predictions", color='blue')
-    plt.title(title)
-    plt.xlabel("Date")
-    plt.ylabel("Number of Trips")
-    plt.legend()
-    plt.show()
+print("Model training and prediction completed successfully!")
 
-# Plot results
-print("VARMAX Model Results")
-plot_results(y_train, pred, "VARMAX Forecast vs Training Data")
+import matplotlib.pyplot as plt
 
-# Additional diagnostic plot
+# Load predictions
+pred = pd.read_csv("predictions.csv", index_col=0)
+pred.index = pd.to_datetime(pred.index)
+
+# Plot the predictions
 plt.figure(figsize=(12, 5))
-pred.plot(label="VARMAX Forecast", color='blue')
-y_train[-500:].plot(label="Last 500 Training Hours", color='black')
-plt.title("Detailed Forecast View")
-plt.xlabel("Date")
+plt.plot(pred, label="Predicted Trips", color='blue')
+plt.title("Forecasted Number of Taxi Trips")
+plt.xlabel("Time")
 plt.ylabel("Number of Trips")
 plt.legend()
 plt.show()
 
-print("Model training and prediction completed successfully!")
+plt.figure(figsize=(12, 5))
+plt.plot(y_train[-500:], label="Actual Trips (Training)", color='black')  # Last 500 hours of training data
+plt.plot(pred, label="Predicted Trips", color='blue')
+plt.title("Actual vs Forecasted Taxi Trips")
+plt.xlabel("Time")
+plt.ylabel("Number of Trips")
+plt.legend()
+plt.show()
